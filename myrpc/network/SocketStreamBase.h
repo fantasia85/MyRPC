@@ -47,9 +47,9 @@ public:
 
     bool GetRemoteHost (char *ipaddress, size_t size, int *port = NULL);
 
-    std::iostream &getlineWithTrimRight(char *line, size_t size);
+    std::istream &getlineWithTrimRight(char *line, size_t size);
 
-    virtual int LasrError() = 0;
+    virtual int LastError() = 0;
 
 protected:
     virtual int Sockfd() = 0;
