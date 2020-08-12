@@ -175,6 +175,34 @@ int UThreadConnect(UThreadSocket_t &socket, const struct sockaddr *addr, socklen
 
 int UThreadAccept(UThreadSocket_t &socket, struct sockaddr *addr, socklen_t *addrlen);
 
+ssize_t UThreadRecv(UThreadSocket_t &socket, void *buf, size_t len, const int flags);
 
+ssize_t UThreadRead(UThreadSocket_t &socket, void *buf, size_t len, const int flags);
+
+ssize_t UThreadSend(UThreadSocket_t &socket, const void *buf, size_t len, const int flags);
+
+int UThreadClose(UThreadSocket_t &socket);
+
+void UThreadSetConnectTimeout(UThreadSocket_t &socket, const int connect_timeout_ms);
+
+void UThreadSetSocketTimeout(UThreadSocket_t &socket, const int socket_timeout_ms);
+
+int UThreadSocketFd(UThreadSocket_t &socket);
+
+size_t UThreadSocketTimerID(UThreadSocket_t &socket);
+
+void UThreadSocketSetTimerID(UThreadSocket_t &socket, size_t timer_id);
+
+UThreadSocket_t *NewUThreadSocket();
+
+void UThreadSetArgs(UThreadSocket_t &socket, void *args);
+
+void *UThreadGetArgs(UThreadSocket_t &socket);
+
+void UThreadWait(UThreadSocket_t &socket, const int timeout_ms);
+
+void UThreadLazyDestory(UThreadSocket_t &socket);
+
+bool IsUThreadDestory(UThreadSocket_t &socket);
 
 }

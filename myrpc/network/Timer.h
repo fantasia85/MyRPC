@@ -22,7 +22,9 @@ public:
     UThreadSocket_t *PopTimeout();
     const int GetNextTimeout() const;
     const bool empty();
+    //获得系统时间，可以被用户设置
     static const uint64_t GetTimestampMS();
+    //获得monotonic时间，不可以被用户随意设置
     static const uint64_t GetSteadyClockMS();
     static void MsSleep(const int time_ms);
     std::vector<UThreadSocket_t *> GetSocketList();
@@ -36,6 +38,19 @@ private:
             : abs_time_(abs_time), socket_(socket) {
 
         }
+
+        /*
+        TimerObj(const TimerObj &obj) {
+            abs_time_ = obj.abs_time_;
+            socket_ = obj.socket_;
+        }
+        
+        TimerObj &operator=(const TimerObj &obj) {
+            abs_time_ = obj.abs_time_;
+            socket_ = obj.socket_;
+            return *this;
+        }
+        */
 
         uint64_t abs_time_;
         UThreadSocket_t *socket_;
