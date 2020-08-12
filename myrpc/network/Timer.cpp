@@ -7,6 +7,9 @@
 #include <chrono>
 #include <ctime>
 #include <errno.h>
+#include <algorithm>
+#include <sys/time.h>
+#include <unistd.h>
 
 namespace myrpc {
 
@@ -81,6 +84,83 @@ void Timer::heap_down(const size_t begin_idx) {
 
     timer_heap_[now_idx] = obj;
     UThreadSocketSetTimerID(*timer_heap_[now_idx].socket_, now_idx + 1);
+}
+
+//添加定时器
+void Timer::AddTimer(uint64_t abs_time, UThreadSocket_t *socket) {
+    TimerObj obj(abs_time, socket);
+    timer_heap_.push_back(obj);
+    heap_up(timer_heap_.size());
+}
+
+//移除一个定时器
+void Timer::RemoveTimer(const size_t timer_id) {
+    if (timer_id == 0)
+        return;
+
+    size_t now_idx = timer_id - 1;
+    if (now_idx >= timer_heap_.size())
+        return;
+
+    TimerObj obj = timer_heap_[now_idx];
+    UThreadSocketSetTimerID(*obj.socket_, 0);
+    //将要删除的定时器与最后一个定时器交换位置，并删除该定时器
+    std::swap(timer_heap_[timer_heap_.size() - 1], timer_heap_[now_idx]);
+    timer_heap_.pop_back();
+
+    if (timer_heap_.empty())
+        return;
+
+    //向上或者向下调整堆
+    if (timer_heap_[now_idx] < obj)
+        heap_up(now_idx + 1);
+    else if (timer_heap_[now_idx] == obj) 
+        UThreadSocketSetTimerID(*timer_heap_[now_idx].socket_, now_idx + 1);
+    else
+        heap_down(now_idx);
+}
+
+const int Timer::GetNextTimeout() const {
+    if (timer_heap_.empty()) {
+        return -1;
+    }
+
+    int next_timeout = 0;
+    TimerObj obj = timer_heap_.front();
+    uint64_t now_time = GetSteadyClockMS();
+    if (obj.abs_time_ > now_time) 
+        next_timeout = (int)(obj.abs_time_ - now_time);
+
+    return next_timeout;
+}
+
+UThreadSocket_t *Timer::PopTimeout() {
+    if (timer_heap_.empty())
+        return nullptr;
+    
+    UThreadSocket_t *socket{timer_heap_[0].socket_};
+    UThreadSocketSetTimerID(*socket, 0);
+
+    std::swap(timer_heap_[0], timer_heap_[timer_heap_.size() - 1]);
+    timer_heap_.pop_back();
+
+    //向下调整堆
+    if (timer_heap_.size() > 0) 
+        heap_down(0);
+
+    return socket;
+}
+
+std::vector<UThreadSocket_t *> Timer::GetSocketList() {
+    std::vector<UThreadSocket_t *> socket_list;
+    for (auto &obj : timer_heap_) 
+        socket_list.push_back(obj.socket_);
+
+    return socket_list;
+}
+
+const bool Timer::empty() {
+    return timer_heap_.empty();
 }
 
 }

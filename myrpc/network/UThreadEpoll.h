@@ -66,8 +66,8 @@ public:
     void ReleaseNotifier(const std::string &id);
 
 private:
-    std::map<std::string, UThreadNotifier *> poll_map_;
-    UThreadEpollScheduler *sheduler_{nullptr};
+    std::map<std::string, UThreadNotifier *> pool_map_;
+    UThreadEpollScheduler *scheduler_{nullptr};
     int timeout_ms_{5000};
 };
 
