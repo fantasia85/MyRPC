@@ -80,6 +80,7 @@ public:
 
     bool IsTaskFull();
 
+    //将任务添加到todo_list_中
     void AddTask(UThreadFunc_t func, void *args);
 
     UThreadSocket_t *CreateSocket(const int fd, const int socket_timeout_ms = 5000,
@@ -94,8 +95,13 @@ public:
     //切出任务
     bool YieldTask();
 
+    /* Run函数先会将任务队列中的函数创建为协程，并Resume切换到协程，协程中会将fd的相应操作在epoll中注册，
+     * 然后Yield回到回到Run. Run函数检查活动的fd，并Resume到活动的协程中进行IO操作. */
     bool Run();
 
+    /* 首先调用EpollNotifier的Run函数，将Func函数加入调度器的任务队列，Func函数会读取管道，唤醒epoll.
+    * 下一步会将任务队列中的函数创建为协程，并Resume切换到协程，协程中会将fd的相应操作在epoll中注册，
+    * 然后Yield回到回到Run. Run函数检查活动的fd，并Resume到活动的协程中进行IO操作. */
     void RunForever();
 
     void Close();
@@ -112,6 +118,8 @@ private:
     //任务队列
     typedef std::queue<std::pair<UThreadFunc_t, void *>> TaskQueue;
 
+    /* 将任务队列中的函数创建为协程，并Resume切换到该协程，
+     * 协程中会将fd相应的操作在epoll中注册然后Yield回到Run */
     void ConsumeTodoList();
     void ResumeAll(int flag);
     void StatEpollwaitEvents(const int event_count);

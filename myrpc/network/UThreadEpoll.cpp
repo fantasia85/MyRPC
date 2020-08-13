@@ -202,6 +202,166 @@ bool UThreadEpollScheduler::IsTaskFull() {
     return (runtime_.GetUnfinishedItemCount() + (int)todo_list_.size()) >= max_task_;
 }
 
+//将任务添加到todo_list_中
+void UThreadEpollScheduler::AddTask(UThreadFunc_t func, void *args) {
+    todo_list_.push(std::make_pair(func, args));
+}
+
+void UThreadEpollScheduler::SetActiveSocketFunc(UThreadActiveSocket_t active_socket_func) {
+    active_socket_func_ = active_socket_func;
+}
+
+void UThreadEpollScheduler::SetHandlerNewRequestFunc(UThreadHandlerNewRequest_t handler_new_request_func) {
+    handler_new_request_func_ = handler_new_request_func;
+}
+
+void UThreadEpollScheduler::SetHandlerAcceptedFdFunc(UThreadHandlerAcceptedFdFunc_t handler_accepted_fd_func) {
+    handler_accepted_fd_func_ = handler_accepted_fd_func;
+}
+
+bool UThreadEpollScheduler::YieldTask() {
+    return  runtime_.Yield();
+}
+
+int UThreadEpollScheduler::GetCurrUThread() {
+    return runtime_.GetCurrUThread();
+}
+
+UThreadSocket_t *UThreadEpollScheduler::CreateSocket(const int fd, 
+    const int socket_timeout_ms, const int connect_timeout_ms, const bool no_delay) {
+    UThreadSocket_t  *socket = (UThreadSocket_t *) calloc (1, sizeof(UThreadSocket_t));
+
+    BaseTcpUtils::SetNonBlock(fd, true);
+    if (no_delay) 
+        BaseTcpUtils::SetNoDelay(fd, true);
+
+    socket->scheduler = this;
+    socket->epoll_fd = epoll_fd_;
+    socket->event.data.ptr = socket;
+
+    socket->socket = fd;
+    socket->connect_timeout_ms = connect_timeout_ms;
+    socket->socket_timeout_ms = socket_timeout_ms;
+
+    socket->waited_events = 0;
+    socket->args = nullptr;
+
+    return socket;
+}
+
+/* 将任务队列中的函数创建为协程，并Resume切换到该协程，
+ * 协程中会将fd相应的操作在epoll中注册然后Yield回到Run */
+void UThreadEpollScheduler::ConsumeTodoList() {
+    while (!todo_list_.empty()) {
+        auto &it = todo_list_.front();
+        int id = runtime_.Create(it.first, it.second);
+        runtime_.Resume(id);
+
+        todo_list_.pop();
+    }
+}
+
+void UThreadEpollScheduler::Close() {
+    closed_ = true;
+}
+
+void UThreadEpollScheduler::NotifyEpoll() {
+    if (epoll_wait_events_per_second_ < 2000) {
+        //log
+        epoll_wake_up_.Notify();
+    }
+}
+
+void UThreadEpollScheduler::ResumeAll(int flag) {
+    std::vector<UThreadSocket_t *> exist_socket_list = timer_.GetSocketList();
+    for (auto &socket : exist_socket_list) {
+        socket->waited_events = flag;
+        runtime_.Resume(socket->uthread_id);
+    }
+}
+
+/* 首先调用EpollNotifier的Run函数，将Func函数加入调度器的任务队列，Func函数会读取管道，唤醒epoll.
+ * 下一步会将任务队列中的函数创建为协程，并Resume切换到协程，协程中会将fd的相应操作在epoll中注册，
+ * 然后Yield回到回到Run. Run函数检查活动的fd，并Resume到活动的协程中进行IO操作。 */
+void UThreadEpollScheduler::RunForever() {
+    run_forever_ = true;
+    epoll_wake_up_.Run();
+    Run();
+}
+
+void UThreadEpollScheduler::StatEpollwaitEvents(const int event_count) {
+    epoll_wait_events_ += event_count;
+    auto now_time = Timer::GetSteadyClockMS();
+    if (now_time > epoll_wait_events_last_cal_time_ + 1000) {
+        epoll_wait_events_per_second_ = epoll_wait_events_;
+        epoll_wait_events_ = 0;
+        epoll_wait_events_last_cal_time_ = now_time;
+        //log
+    }
+}
+
+/* Run函数先会将任务队列中的函数创建为协程，并Resume切换到协程，协程中会将fd的相应操作在epoll中注册，
+ * 然后Yield回到回到Run. Run函数检查活动的fd，并Resume到活动的协程中进行IO操作. */
+bool UThreadEpollScheduler::Run() {
+    //将任务队列中的函数创建为协程
+    ConsumeTodoList();
+
+    struct epoll_event *events = (struct epoll_event *) calloc (max_task_, sizeof(struct epoll_event));
+
+    int next_timeout = timer_.GetNextTimeout();
+
+    for ( ; (run_forever_) || (!runtime_.IsAllDone()); ) {
+        /* 监听fd上的活动事件 ，并把超时事件设置为4 ms.
+         * 如果超时，则轮询的处理工作. */
+        int nfds = epoll_wait(epoll_fd_, events, max_task_, 4);
+        if (nfds != -1) {
+            //处理socket上的活动事件
+            for (int i = 0; i < nfds; i++) {
+                UThreadSocket_t *socket = (UThreadSocket_t *) events[i].data.ptr;
+                socket->waited_events = events[i].events;
+
+                runtime_.Resume(socket->uthread_id);
+            }
+
+            //轮询工作
+            //读取data flow，如果有responce可以读取，通知相应的socket写给client
+            if (active_socket_func_ != nullptr) {
+                UThreadSocket_t *socket = nullptr;
+                while ((socket = active_socket_func_()) != nullptr)
+                    runtime_.Resume(socket->uthread_id);
+            }
+
+            //处理新的request
+            if (handler_new_request_func_ != nullptr) 
+                handler_new_request_func_();
+            
+            //处理新接收的client
+            if (handler_accepted_fd_func_ != nullptr) 
+                handler_accepted_fd_func_();
+
+            if (closed_) {
+                ResumeAll(UThreadEpollREvent_Close);
+                break;
+            }
+
+            ConsumeTodoList();
+
+            //处理超时事件
+            DealwithTimeout(next_timeout);
+        }
+        else if (errno != EINTR)  {
+            ResumeAll(UThreadEpollREvent_Error);
+            break;
+        }
+
+        StatEpollwaitEvents(nfds);
+    }
+    
+    free(events);
+
+    return true;
+}
+
 
 
 }
