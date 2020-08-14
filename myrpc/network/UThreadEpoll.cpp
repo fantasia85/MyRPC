@@ -10,6 +10,7 @@
 #include <string>
 #include <iterator>
 #include <cassert>
+#include <limits>
 
 namespace myrpc {
 
@@ -362,6 +363,129 @@ bool UThreadEpollScheduler::Run() {
     return true;
 }
 
+void UThreadEpollScheduler::AddTimer(UThreadSocket_t *socket, const int timeout_ms) {
+    RemoveTimer(socket->timer_id);
 
+    if (timeout_ms == -1) {
+        timer_.AddTimer((std::numeric_limits<uint64_t>::max)(), socket);
+    }
+    else {
+        //先获得当前的时间，再在该时间上加上timeout_ms
+        timer_.AddTimer(Timer::GetSteadyClockMS() + timeout_ms, socket);
+    }
+}
+
+void UThreadEpollScheduler::RemoveTimer(const size_t timer_id) {
+    if (timer_id > 0)
+        timer_.RemoveTimer(timer_id);
+}
+
+//处理超时事件
+void UThreadEpollScheduler::DealwithTimeout(int &next_timeout) {
+    while (true) {
+        next_timeout = timer_.GetNextTimeout();
+        if (0 != next_timeout) {
+            break;
+        }
+
+        UThreadSocket_t *socket = timer_.PopTimeout();
+        socket->waited_events = UThreadEpollREvent_Timeout;
+        runtime_.Resume(socket->uthread_id);
+    }
+}
+
+
+//接受一个socket的版本 
+int UThreadPoll(UThreadSocket_t &socket, int events, int *revents, const int timeout_ms) {
+    int ret{-1};
+
+    //获得当前正在执行的协程
+    socket.uthread_id = socket.scheduler->GetCurrUThread();
+
+    //增加超时事件
+    socket.event.events = events;
+
+    socket.scheduler->AddTimer(&socket, timeout_ms);
+    //事件加入epoll中进行调度，为了处理当超时事件还没达到时就触发事件，使得提前结束
+    epoll_ctl(socket.epoll_fd, EPOLL_CTL_ADD, socket.socket, &socket.event);
+
+    //将当前的协程停止，转让CPU给主协程
+    //当主协程下一次收到这个超时事件的时候，将执行权还给这个协程
+    //协程从当前位置开始执行
+    socket.scheduler->YieldTask();
+
+    //超时任务完成，协程继续从此处执行，并删除定时器 
+    epoll_ctl(socket.epoll_fd, EPOLL_CTL_DEL, socket.socket, &socket.event);
+    socket.scheduler->RemoveTimer(socket.timer_id);
+
+    *revents = socket.waited_events;
+
+    if ((*revents) > 0) {
+        if ((*revents) & events) 
+            ret = 1;
+        else {
+            errno = EINVAL;
+            ret = 0;
+        }
+    }
+    else if ((*revents) == UThreadEpollREvent_Timeout) {
+        //timeout
+        errno = ETIMEDOUT;
+        ret = 0;
+    }
+    else if ((*revents) == UThreadEpollREvent_Error) {
+        //error
+        errno = ECONNREFUSED;
+        ret = -1;
+    }
+    else {
+        //active close
+        errno = 0;
+        ret = -1;
+    }
+
+    return -1;
+}
+
+//接受一组socket的版本 
+int UThreadPoll(UThreadSocket_t *list[], int count, const int timeout_ms) {
+    int nfds = -1;
+
+    UThreadSocket_t *socket = list[0];
+
+    int epollfd = epoll_create(count);
+
+    for (int i = 0; i < count; i++)
+        epoll_ctl(epollfd, EPOLL_CTL_ADD, list[i]->socket, &(list[i]->event));
+
+    UThreadSocket_t fake_socket;
+    fake_socket.scheduler = socket->scheduler;
+    fake_socket.socket = epollfd;
+    fake_socket.uthread_id = socket->scheduler->GetCurrUThread();
+    fake_socket.event.events = EPOLLIN | EPOLLERR | EPOLLHUP;
+    fake_socket.event.data.ptr = &fake_socket;
+    fake_socket.waited_events = 0;
+
+    epoll_ctl(socket->epoll_fd, EPOLL_CTL_ADD, epollfd, &(fake_socket.event));
+
+    socket->scheduler->YieldTask();
+
+    if (0 != (EPOLLIN & fake_socket.waited_events)) {
+        struct epoll_event *events = (struct epoll_event *) calloc (count, sizeof(struct epoll_event));
+
+        nfds = epoll_wait(epollfd, events, count, 0);
+
+        for (int i = 0; i < nfds; i++) {
+            UThreadSocket_t *socket = (UThreadSocket_t *) events[i].data.ptr;
+            socket->waited_events = events[i].events;
+        }
+    }
+    else if (fake_socket.waited_events == 0) 
+        nfds = 0;
+
+    close (epollfd);
+
+    return nfds;
+}
 
 }
