@@ -11,6 +11,10 @@
 #include <iterator>
 #include <cassert>
 #include <limits>
+#include <errno.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 namespace myrpc {
 
@@ -396,6 +400,7 @@ void UThreadEpollScheduler::DealwithTimeout(int &next_timeout) {
 
 
 //接受一个socket的版本 
+//epoll_ctl注册对应事件后Yield，Resume回来后删除注册
 int UThreadPoll(UThreadSocket_t &socket, int events, int *revents, const int timeout_ms) {
     int ret{-1};
 
@@ -486,6 +491,140 @@ int UThreadPoll(UThreadSocket_t *list[], int count, const int timeout_ms) {
     close (epollfd);
 
     return nfds;
+}
+
+int UThreadConnect(UThreadSocket_t &socket, const struct sockaddr *addr, socklen_t addrlen) {
+    int ret = connect(socket.socket, addr, addrlen);
+
+    if (ret != 0) {
+        if (errno != EAGAIN && errno != EINPROGRESS)
+            return -1;
+
+        int revents = 0;
+        if (UThreadPoll(socket, EPOLLOUT, &revents, socket.connect_timeout_ms) > 0) {
+            ret = 0;
+        }
+        else
+            ret = -1;
+    }
+
+    return ret;
+}
+
+int UThreadAccept(UThreadSocket_t &socket, struct sockaddr *addr, socklen_t *addrlen) {
+    int ret = accept(socket.socket, addr, addrlen);
+    if (ret < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+            return -1;
+
+        int revents = 0;
+        if (UThreadPoll(socket, EPOLLIN, &revents, -1) > 0) {
+            ret = accept(socket.socket, addr, addrlen);
+        }
+        else
+            ret = -1;
+    }
+
+    return ret;
+}
+
+ssize_t UThreadRead(UThreadSocket_t &socket, void *buf, size_t len, const int flags) {
+    int ret = read(socket.socket, buf, len);
+
+    if (ret < 0 && errno == EAGAIN) {
+        int revents = 0;
+        if (UThreadPoll(socket, EPOLLIN, &revents, socket.socket_timeout_ms) > 0) {
+            ret = read(socket.socket, buf, len);
+        }
+        else
+            ret = -1;
+    }
+
+    return ret;
+}
+
+ssize_t UThreadRecv(UThreadSocket_t &socket, void *buf, size_t len, const int flags) {
+    int ret = recv(socket.socket, buf, len, flags);
+
+    if (ret < 0 && errno == EAGAIN) {
+        int revents = 0;
+        if (UThreadPoll(socket, EPOLLIN, &revents, socket.socket_timeout_ms) > 0) {
+            ret = recv(socket.socket, buf, len, flags);
+        }
+        else
+            ret = -1;
+    }
+
+    return ret;
+}
+
+ssize_t UThreadSend(UThreadSocket_t &socket, const void *buf, size_t len, const int flags) {
+    int ret = send(socket.socket, buf, len, flags);
+
+    if (ret < 0 && errno == EAGAIN) {
+        int revents = 0;
+        if (UThreadPoll(socket, EPOLLOUT, &revents, socket.socket_timeout_ms) > 0) {
+            ret = send(socket.socket, buf, len, flags);
+        }
+        else
+            ret = -1;
+    }
+
+    return ret;
+}
+
+int UThreadClose(UThreadSocket_t &socket) {
+    if (socket.socket >= 0) 
+        return close(socket.socket);
+    return -1;
+}
+
+void UThreadSetConnectTimeout(UThreadSocket_t &socket, const int connect_timeout_ms) {
+    socket.connect_timeout_ms = connect_timeout_ms;
+}
+
+void UThreadSetSocketTimeout(UThreadSocket_t &socket, const int socket_timeout_ms) {
+    socket.socket_timeout_ms = socket_timeout_ms;
+}
+
+int UThreadSocketFd(UThreadSocket_t &socket) {
+    return socket.socket;
+}
+
+size_t UThreadSocketTImerID(UThreadSocket_t &socket) {
+    return socket.timer_id;
+}
+
+void UTHreadSocketSetTimerID(UThreadSocket_t &socket, size_t timer_id) {
+    socket.timer_id = timer_id;
+}
+
+UThreadSocket_t *NewUThreadSocket() {
+    UThreadSocket_t *socket = (UThreadSocket_t *) calloc(1, sizeof(UThreadSocket_t));
+    return socket;
+}
+
+void UThreadSetArgs(UThreadSocket_t &socket, void *args) {
+    socket.args = args;
+}
+
+void *UThreadGetArgs(UThreadSocket_t &socket) {
+    return socket.args;
+}
+
+void UThreadWait(UThreadSocket_t &socket, const int timeout_ms) {
+    socket.uthread_id = socket.scheduler->GetCurrUThread();
+    socket.scheduler->AddTimer(&socket, timeout_ms);
+    socket.scheduler->YieldTask();
+    socket.scheduler->RemoveTimer(socket.timer_id);
+}
+
+void UThreadLazyDestory(UThreadSocket_t &socket) {
+    socket.uthread_id = -1;
+}
+
+bool IsUThreadDestory(UThreadSocket_t &socket) {
+    return socket.uthread_id == -1;
 }
 
 }

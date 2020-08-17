@@ -174,6 +174,7 @@ private:
 
 //UThreadPoll负责注册对应事件之后Yield, Resume回来后删除注册
 //接受一个socket的版本 
+//epoll_ctl注册对应事件后Yield，Resume回来后删除注册
 int UThreadPoll(UThreadSocket_t &socket, int events, int *revents, const int timeout_ms);
 
 //接受一组socket的版本 
