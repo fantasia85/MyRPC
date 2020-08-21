@@ -39,7 +39,6 @@ public:
     static int RecvBody(BaseTcpStream &socket, HttpMessage *msg);
     static int RecvReq(BaseTcpStream &socket, HttpRequest *req);
     static int RecvResp(BaseTcpStream &socket, HttpResponse *resp);
-
 };
 
 }
