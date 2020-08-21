@@ -53,7 +53,9 @@ public:
     const char *version() const;
     void set_version(const char *version);
 
-    Direction direction() const { return direction_; }
+    Direction direction() const { 
+        return direction_; 
+    }
 
 protected:
     void set_direction(const Direction direction)  {
@@ -63,7 +65,7 @@ protected:
     std::vector<std::string> header_name_list_, header_value_list_;
 
 private:
-    std::string context_;
+    std::string content_;
     char version_[16];
     Direction direction_{Direction::NONE};
 };
