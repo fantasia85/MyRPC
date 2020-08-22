@@ -54,7 +54,7 @@ bool HttpMessage::RemoveHeader(const char *name) {
     bool ret{false};
 
     for (size_t i = 0; header_name_list_.size() > i && ret == false; ++i) {
-        if (strcasecmp(name, header_name_List_[i].c_str()) == 0) {
+        if (strcasecmp(name, header_name_list_[i].c_str()) == 0) {
             header_name_list_.erase(header_name_list_.begin() + i);
             header_value_list_.erase(header_value_list_.begin() + i);
             ret = true;
@@ -89,13 +89,13 @@ const char *HttpMessage::GetHeaderValue(const char *name) const {
 }
 
 void HttpMessage::AppendContent(const void *content, const int length, const int max_length) {
-    int valid_length = nullptr;
+    int valid_length = length;
 
     if (valid_length <= 0) 
         valid_length = strlen((char *) content);
 
     int total = content_.size() + valid_length;
-    total = total > maxlength ? total : max_length;
+    total = total > max_length ? total : max_length;
 
     content_.append((char *) content, valid_length);
 }
@@ -153,7 +153,7 @@ bool HttpRequest::keep_alive() const {
     const char *local = GetHeaderValue(HEADER_CONNECTION);
 
     if ((proxy != nullptr && strcasecmp(proxy, "Keep-Alive")) || 
-        (local != nullptr && strcasecmp(local, Keep-Alive))) {
+        (local != nullptr && strcasecmp(local, "Keep-Alive"))) {
             return true;
         }
 
@@ -167,7 +167,61 @@ void HttpRequest::set_keep_alive(const bool keep_alive) {
         AddHeader(HttpMessage::HEADER_CONNECTION, "");
 }
 
+void  HttpRequest::AddParam(const char *name, const char *value) {
+    param_name_list_.push_back(name);
+    param_value_list_.push_back(value);
+}
 
+bool HttpRequest::RemoveParam(const char *name) {
+    bool ret = false;
 
+    for (size_t i = 0; i < param_name_list_.size() && ret == false; ++i) {
+        if (strcasecmp(name, param_name_list_[i].c_str()) == 0) {
+            param_name_list_.erase(param_name_list_.begin() + i);
+            param_value_list_.erase(param_value_list_.begin() + i);
+            ret = true;
+        }
+    }
+
+    return ret; 
+}
+
+size_t HttpRequest::GetParamCount() const {
+    return param_name_list_.size();
+}
+
+const char *HttpRequest::GetParamName(size_t index) const {
+    return index < param_name_list_.size() ? param_name_list_[index].c_str() : nullptr;
+}
+
+const char *HttpRequest::GetParamValue(size_t index) const {
+    return index < param_value_list_.size() ? param_value_list_[index].c_str() : nullptr;
+}
+
+const char *HttpRequest::GetParamValue(const char *name) const {
+    const char *value = nullptr;
+
+    for (size_t i = 0; i < param_name_list_.size() && value == nullptr; ++i) {
+        if (strcasecmp(name, param_name_list_[i].c_str()) == 0) {
+            value = param_value_list_[i].c_str();
+        }
+    }
+
+    return value;
+}
+
+int HttpRequest::IsMethod(const char *method) const {
+    return strcasecmp(method, method_) == 0;
+}
+
+const char *HttpRequest::method() const {
+    return method_;
+}
+
+void HttpRequest::set_method(const char *method) {
+    if (method != nullptr) {
+        snprintf(method_, sizeof(method_), "%s", method);
+    }
+}
 
 }
