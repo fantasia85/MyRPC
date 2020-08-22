@@ -224,4 +224,83 @@ void HttpRequest::set_method(const char *method) {
     }
 }
 
+HttpResponse::HttpResponse() {
+    set_version("HTTP/1.0");
+    set_direction(Direction::RESPONSE);
+    status_code_ = 200;
+    snprintf(reason_phrase_, sizeof(reason_phrase_), "%s", "OK");
+}
+
+HttpResponse::~HttpResponse() {
+
+}
+
+int HttpResponse::Send(BaseTcpStream &socket) const {
+    socket << version() << " " << status_code() << " " << reason_phrase() << "\r\n";
+
+    for (size_t i = 0; i < GetHeaderCount(); ++i) {
+        socket << GetHeaderName(i) << ": " << GetHeaderValue(i) << "\r\n";
+    }
+
+    if (content().size() > 0) {
+        if (GetHeaderValue(HttpMessage::HEADER_CONTENT_LENGTH)) {
+            socket << HttpMessage::HEADER_CONTENT_LENGTH << ": " << content().size() << "\r\n";
+        }
+    }
+
+    socket << "\r\n";
+
+    if (content().size() > 0) 
+        socket << content();
+
+    if (socket.flush().good()) {
+        return 0;
+    }
+    else {
+        return static_cast<int>(socket.LastError());
+    }
+}
+
+void HttpResponse::SetFake(FakeReason reason) {
+    switch (reason) {
+        case FakeReason::DISPATCH_ERROR:
+            set_status_code(404);
+            set_reason_phrase("Not Found");
+            break;
+        default:
+            set_status_code(520);
+            set_reason_phrase("Unknown Error");
+    };
+}
+
+int HttpResponse::Modify(const bool keep_alive, const std::string &version) {
+    HttpProtocol::FixRespHeaders(keep_alive, version.c_str(), this);
+    return 0;
+}
+
+int HttpResponse::result() {
+    const char *result = GetHeaderValue(HttpMessage::HEADER_X_MYRPC_RESULT);
+    return atoi(result == nullptr ? "-1" : result);
+}
+
+void HttpResponse::set_result(const int result) {
+    AddHeader(HttpMessage::HEADER_X_MYRPC_RESULT, result);
+}
+
+void HttpResponse::set_status_code(int status_code) {
+    status_code_ = status_code;
+}
+
+int HttpResponse::status_code() const {
+    return status_code_;
+}
+
+void HttpResponse::set_reason_phrase(const char *reason_phrase) {
+    snprintf(reason_phrase_, sizeof(reason_phrase_), "%s", reason_phrase);
+}
+
+const char *HttpResponse::reason_phrase() const {
+    return reason_phrase_;
+}
+
 }
