@@ -46,4 +46,42 @@ private:
     //int log_level_;
 };
 
+class MyServerConfig : public ServerConfig {
+public:
+    MyServerConfig();
+    virtual ~MyServerConfig() override;
+
+    //DoRead
+
+    void SetMaxConnections(const int max_connections);
+    int GetMaxConnections() const;
+
+    void SetMaxQueueLength(const int max_queue_length);
+    int GetMaxQueueLength() const;
+
+    //SetFastRejectThresholdMS
+    //GetFastRejectThresholdMS
+
+    //SetFastRejectAdjustRate
+    //GetFastRejectAdjustRate
+
+    void SetIOThreadCount(const int io_thread_count);
+    int GetIOThreadCount() const;
+
+    void SetWorkerUThreadCount(const int worker_uthread_count);
+    int GetWorkerUThreadCount() const;
+
+    void SetWorkerUThreadStackSize(const int worker_uthread_stack_size);
+    int GetWorkerUThreadStackSize() const;
+
+private:
+    int max_connections_;
+    int max_queue_length_;
+    //int fast_reject_threshold_ms_;
+    //int fast_reject_adjust_rate_;
+    int io_thread_count_;
+    int worker_uthread_count_;
+    int worker_uthread_stack_size_;
+};
+
 }
