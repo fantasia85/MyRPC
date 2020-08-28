@@ -56,7 +56,13 @@ private:
     };
 
     ThreadQueue<std::pair<QueueExtData, BaseRequest *>> in_queue_;
-    ThreadQueue<std::pair<QueueExtData, BaseResponse *>> out_queu_;
+    ThreadQueue<std::pair<QueueExtData, BaseResponse *>> out_queue_;
+};
+
+class Worker final {
+
+private:
+
 };
 
 }
