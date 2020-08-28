@@ -21,6 +21,6 @@ typedef struct tagDispatcherArgs {
 
     }
     
-} DispathcherArgs_t;
+} DispatcherArgs_t;
 
 }
