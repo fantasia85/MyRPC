@@ -123,5 +123,27 @@ private:
     std::mutex mutex_;
 };
 
+class MyServerIO final {
+public:
+    MyServerIO (const int idx, UThreadEpollScheduler *const scheduler, const MyServerConfig *config,
+        DataFlow *data_flow, WorkerPool *worker_pool, myrpc::BaseMessageHandlerFactoryCreateFunc msg_handler_factory_create_func);
+    ~MyServerIO();
+
+    void RunForever();
+    bool AddAcceptedFd(const int accepted_fd);
+    void HandlerAcceptedFd();
+    void IOFunc(int accept_fd);
+    UThreadSocket_t *ActiveSocketFunc();
+
+private:
+    int idx_ = -1;
+    UThreadEpollScheduler *scheduler_ = nullptr;
+    const MyServerConfig *config_ = nullptr;
+    DataFlow *data_flow_ = nullptr;
+    WorkerPool *worker_pool_ = nullptr;
+    std::unique_ptr<BaseMessageHandlerFactory> msg_handler_factory_;
+    std::queue<int> accepted_fd_list_;
+    std::mutex queue_mutex_;
+};
 
 }

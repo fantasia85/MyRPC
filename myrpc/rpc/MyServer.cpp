@@ -228,5 +228,144 @@ void WorkerPool::NotifyEpoll() {
     worker_list_[last_notify_idx_++]->NotifyEpoll();
 }
 
+MyServerIO::MyServerIO(const int idx, UThreadEpollScheduler *const scheduler, const MyServerConfig *config,
+    DataFlow *data_flow, WorkerPool *worker_pool, myrpc::BaseMessageHandlerFactoryCreateFunc msg_handler_factory_create_func)
+    : idx_(idx), scheduler_(scheduler), config_(config), data_flow_(data_flow), worker_pool_(worker_pool),
+      msg_handler_factory_(std::move(msg_handler_factory_create_func())) {
+
+}
+
+MyServerIO::~MyServerIO() {
+
+}
+
+bool MyServerIO::AddAcceptedFd(const int accepted_fd) {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (accepted_fd_list_.size() > MAX_ACCEPT_QUEUE_LENGTH) 
+        return false;
+    accepted_fd_list_.push(accepted_fd);
+
+    scheduler_->NotifyEpoll();
+
+    return true;
+}
+
+void MyServerIO::HandlerAcceptedFd() {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    while (!accepted_fd_list_.empty()) {
+        int accepted_fd = accepted_fd_list_.front();
+        accepted_fd_list_.pop();
+        scheduler_->AddTask(std::bind(&MyServerIO::IOFunc, this, accepted_fd), nullptr);
+    }
+}
+
+void MyServerIO::IOFunc(int accepted_fd) {
+    UThreadSocket_t *socket = scheduler_->CreateSocket(accepted_fd);
+    UThreadTcpStream stream;
+    stream.Attach(socket);
+    UThreadSetSocketTimeout(*socket, config_->GetSocketTimeoutMS());
+
+    while (true) {
+        auto msg_handler(msg_handler_factory_->Create());
+        if (!msg_handler) {
+            //log
+            break;
+        }
+
+        //会在worker中被删除
+        BaseRequest *req = nullptr;
+        int ret = msg_handler->RecvRequest(stream, req);
+        if (ret != 0) {
+            if (req) {
+                delete req;
+                req = nullptr;
+            }
+
+            //log
+
+            break;
+        }
+
+        char client_ip[128] = {'\0'};
+        stream.GetRemoteHost(client_ip, sizeof(client_ip));
+        //log
+
+        if (!data_flow_->CanPushRequest(config_->GetMaxQueueLength())) {
+            if (req) {
+                delete req;
+                req = nullptr;
+            }
+
+            //log
+
+            break;
+        }
+
+        data_flow_->PushRequest(socket, req);
+
+        //如果工作线程工作在协程模式，则需要唤醒
+        //工作线程会删除掉request
+        worker_pool_->NotifyEpoll();
+        UThreadSetArgs(*socket, nullptr);
+
+        UThreadWait(*socket, config_->GetSocketTimeoutMS());
+        if (UThreadGetArgs(*socket) == nullptr) {
+            //因为有一个输入队列，所以弹出后套接字会被关闭
+            socket = stream.DetachSocket();
+            UThreadLazyDestory(*socket);
+
+            //log
+
+            break;
+        }
+
+        {
+            BaseResponse *resp = (BaseResponse *) UThreadGetArgs(*socket);
+            if (!resp->fake()) {
+                ret = resp->Send(stream);
+                //log
+            }
+            delete resp;
+        }
+
+        if (!msg_handler->keep_alive() || (ret != 0)) 
+            break;
+    }
+}
+
+UThreadSocket_t *MyServerIO::ActiveSocketFunc() {
+    while (data_flow_->CanPluckResponse()) {
+        void *args = nullptr;
+        BaseResponse *resp = nullptr;
+
+        int queue_wait_time_ms = data_flow_->PluckResponse(args, resp);
+        if (!resp)
+            return nullptr;
+
+        UThreadSocket_t *socket = (UThreadSocket_t *) args;
+        //套接字已经超时，关闭套接字
+        if (socket != nullptr && IsUThreadDestory(*socket)) {
+            UThreadClose(*socket);
+            free(socket);
+            delete resp;
+
+            continue;
+        }
+
+        UThreadSetArgs(*socket, (void *)resp);
+
+        return socket;
+    }
+
+    return  nullptr;
+}
+
+void MyServerIO::RunForever() {
+    scheduler_->SetHandlerAcceptedFdFunc(std::bind(&MyServerIO::HandlerAcceptedFd, this));
+    scheduler_->SetActiveSocketFunc(std::bind(&MyServerIO::ActiveSocketFunc, this));
+    scheduler_->RunForever();
+}
+
+
 
 }
