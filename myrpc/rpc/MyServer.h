@@ -166,4 +166,38 @@ private:
     std::thread thread_;
 };
 
+class MyServerAcceptor final {
+public:
+    MyServerAcceptor(MyServer *my_server);
+    ~MyServerAcceptor();
+
+    void LoopAccept(const char *const bind_ip, const int port);
+
+private:
+    MyServer *my_server_ = nullptr;
+    size_t idx_ = 0;
+};
+
+class MyServer {
+public:
+    MyServer(const MyServerConfig &config, const Dispatch_t &dispatch, void *args, 
+        myrpc::BaseMessageHandlerFactoryCreateFunc msg_handler_factory_create_func = 
+        []()->std::unique_ptr<myrpc::HttpMessageHandlerFactory> { return std::unique_ptr<myrpc::HttpMessageHandlerFactory> 
+        (new myrpc::HttpMessageHandlerFactory); });
+    virtual ~MyServer();
+
+    void RunForever();
+
+private:
+    friend class MyServerAcceptor;
+    friend class MyServerUnit;
+
+    const MyServerConfig *config_ = nullptr;
+    myrpc::BaseMessageHandlerFactoryCreateFunc msg_handler_factory_create_func_;
+    MyServerAcceptor my_server_acceptor_;
+    std::vector<MyServerUnit *> server_unit_list_;
+    
+    void LoopReadCrossUnitResponse();
+};
+
 }

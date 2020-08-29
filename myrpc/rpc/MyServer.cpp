@@ -366,8 +366,6 @@ void MyServerIO::RunForever() {
     scheduler_->RunForever();
 }
 
-/* 
- * points to incompliate class 
 MyServerUnit::MyServerUnit(const int idx, MyServer *const my_server, int worker_thread_count,
     int worker_uthread_count_per_thread, int worker_uthread_stack_size, Dispatch_t dispatch, void *args)
     : my_server_(my_server), scheduler_(8 * 1024, 1000000, false), 
@@ -378,7 +376,6 @@ MyServerUnit::MyServerUnit(const int idx, MyServer *const my_server, int worker_
       thread_(&MyServerUnit::RunFunc, this) {
 
 }
-*/
 
 MyServerUnit::~MyServerUnit() {
     thread_.join();
@@ -390,6 +387,90 @@ void MyServerUnit::RunFunc() {
 
 bool MyServerUnit::AddAcceptedFd(const int accepted_fd) {
     return my_server_io_.AddAcceptedFd(accepted_fd);
+}
+
+MyServerAcceptor::MyServerAcceptor(MyServer *my_server) : my_server_(my_server) {
+
+}
+
+MyServerAcceptor::~MyServerAcceptor() {
+
+}
+
+void MyServerAcceptor::LoopAccept(const char *const bind_ip, const int port) {
+    int listen_fd = -1;
+    if (!BlockTcpUtils::Listen(&listen_fd, bind_ip, port)) {
+        printf("listen %s:%d err\n", bind_ip, port);
+        exit(-1);
+    }
+
+    printf("listen %s:%d ok\n", bind_ip, port);
+
+    //线程绑定CPU核，并设置线程可以使用的CPU核
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(0, &mask);
+    pid_t thread_id = 0;
+    int ret = sched_setaffinity(thread_id, sizeof(mask), &mask);
+
+    while (true) {
+        struct sockaddr_in addr;
+        socklen_t socklen = sizeof(addr);
+        int accepted_fd = accept(listen_fd, (struct sockaddr *) &addr, &socklen);
+        if (accepted_fd >= 0) {
+            idx_ %= my_server_->server_unit_list_.size();
+            if (!my_server_->server_unit_list_[idx_++]->AddAcceptedFd(accepted_fd)) {
+                //log 
+
+                close(accepted_fd);
+                continue;
+            }
+        }
+    }
+
+    close(listen_fd);
+}
+
+MyServer::MyServer(const MyServerConfig &config, const Dispatch_t &dispatch, void *args,
+    myrpc::BaseMessageHandlerFactoryCreateFunc msg_handler_factory_create_func)
+    : config_(&config), msg_handler_factory_create_func_(msg_handler_factory_create_func), 
+      my_server_acceptor_(this) {
+    
+    size_t io_count = (size_t) config.GetIOThreadCount();
+    size_t worker_thread_count = (size_t) config.GetMaxThreads();
+    assert(worker_thread_count > 0);
+    if (worker_thread_count < io_count) {
+        io_count = worker_thread_count;
+    }
+
+    int worker_uthread_stack_size = config.GetWorkerUThreadStackSize();
+    size_t worker_thread_count_per_io = worker_thread_count / io_count;
+    for (size_t i = 0; i < io_count; ++i) {
+        if (i == io_count - 1) {
+            worker_thread_count_per_io = worker_thread_count - (worker_thread_count_per_io * (io_count - 1));
+        }
+
+        auto my_server_unit = new MyServerUnit(i, this, (int) worker_thread_count_per_io, 
+            config.GetWorkerUThreadCount(), worker_uthread_stack_size,
+            dispatch, args);
+
+        assert(my_server_unit != nullptr);
+        server_unit_list_.push_back(my_server_unit);
+    }
+
+    printf("server already started, %zu io threads %zu workers\n", io_count, worker_thread_count);
+
+    if (config.GetWorkerUThreadCount() > 0) 
+        printf("server in uthread mode, %d uthread per worker\n", config.GetWorkerUThreadCount());
+}
+
+MyServer::~MyServer() {
+    for (auto &my_server_unit : server_unit_list_) 
+        delete my_server_unit;
+}
+
+void MyServer::RunForever() {
+    my_server_acceptor_.LoopAccept(config_->GetBindIP(), config_->GetPort());
 }
 
 }
