@@ -366,6 +366,30 @@ void MyServerIO::RunForever() {
     scheduler_->RunForever();
 }
 
+/* 
+ * points to incompliate class 
+MyServerUnit::MyServerUnit(const int idx, MyServer *const my_server, int worker_thread_count,
+    int worker_uthread_count_per_thread, int worker_uthread_stack_size, Dispatch_t dispatch, void *args)
+    : my_server_(my_server), scheduler_(8 * 1024, 1000000, false), 
+      worker_pool_(idx, &scheduler_, my_server_->config_, worker_thread_count, worker_uthread_count_per_thread,
+        worker_uthread_stack_size, &data_flow_, dispatch, args),
+      my_server_io_(idx, &scheduler_, my_server_->config_, &data_flow_, &worker_pool_,
+        my_server_->msg_handler_factory_create_func_),
+      thread_(&MyServerUnit::RunFunc, this) {
 
+}
+*/
+
+MyServerUnit::~MyServerUnit() {
+    thread_.join();
+}
+
+void MyServerUnit::RunFunc() {
+    my_server_io_.RunForever();
+}
+
+bool MyServerUnit::AddAcceptedFd(const int accepted_fd) {
+    return my_server_io_.AddAcceptedFd(accepted_fd);
+}
 
 }

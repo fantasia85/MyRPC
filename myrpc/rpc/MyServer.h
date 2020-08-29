@@ -146,4 +146,24 @@ private:
     std::mutex queue_mutex_;
 };
 
+class MyServer;
+
+class MyServerUnit {
+public:
+    MyServerUnit(const int idx, MyServer *const my_server, int worker_thread_thread_count,
+        int worker_uthread_count_per_thread, int worker_uthread_stack_size, Dispatch_t dispatch, void *args);
+    virtual ~MyServerUnit();
+
+    void RunFunc();
+    bool AddAcceptedFd(const int accepted_fd);
+
+private:
+    MyServer *my_server_ = nullptr;
+    UThreadEpollScheduler scheduler_;
+    DataFlow data_flow_;
+    WorkerPool worker_pool_;
+    MyServerIO my_server_io_;
+    std::thread thread_;
+};
+
 }
