@@ -102,7 +102,7 @@ bool BaseTcpStream::GetRemoteHost(char *ipaddress, size_t size, int *port) {
     bzero(&addr, sizeof(addr));
 
     int ret;
-    if ((ret = getpeername(Sockfd(), (struct sockaddr *) &addr, &slen)) == 0) {
+    if ((ret = getpeername(SocketFd(), (struct sockaddr *) &addr, &slen)) == 0) {
         inet_ntop(AF_INET, &addr, ipaddress, size);
         if (port != NULL) 
             *port = ntohs(addr.sin_port);

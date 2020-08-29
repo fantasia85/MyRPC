@@ -52,7 +52,7 @@ public:
     virtual int LastError() = 0;
 
 protected:
-    virtual int Sockfd() = 0;
+    virtual int SocketFd() = 0;
     const size_t buf_size_;
 };
 
