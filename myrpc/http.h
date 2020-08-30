@@ -6,3 +6,4 @@
 #include "http/HttpProtocol.h"
 #include "http/HttpMsgHandler.h"
 #include "http/HttpMsgHandlerFactory.h"
+#include "http/HttpClient.h"
