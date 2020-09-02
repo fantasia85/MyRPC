@@ -24,7 +24,7 @@ public:
     }
 
     bool empty() {
-        return static_casr<size_t>(size_) == 0;
+        return static_cast<size_t>(size_) == 0;
     }
 
     //压入数据，并提醒有新的数据被压入
